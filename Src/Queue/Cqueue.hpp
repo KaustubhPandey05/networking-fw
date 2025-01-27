@@ -71,6 +71,8 @@ public:
 private:
     size_type capacity_;
     T* ring;
-    size_type pushcursor{};
-    size_type popcursor{};
+    using CursorType = std::atomic<size_type>;
+    static_assert(CursorType::is_always_lock_free);
+    CursorType pushcursor{};
+    CursorType popcursor{};
 };
