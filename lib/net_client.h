@@ -3,8 +3,6 @@
 #include "net_message.h"
 #include "net_queue.h"
 #include "net_connection.h"
-namespace olc
-{
     namespace net
     {
         template<typename T>
@@ -64,8 +62,5 @@ namespace olc
             std::unique_ptr<connection<T>> m_connection;
          private:
             Queue<owned_message<T>> m_messages_in;
-
-
         };
     }
-}
