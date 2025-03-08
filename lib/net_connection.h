@@ -4,6 +4,10 @@
 #include "net_message.h"
 namespace net
 {
+    //forward declare for the server ptr in connectToClient
+    template<typename T>
+    class server;
+
     template<typename T>
         class connection : public std::enable_shared_from_this<connection<T>>//helps us use this instance with shared_ptr and avoiding having 
     {                                                                       //different refernce count as you would if made multiple shared_ptr 
@@ -19,6 +23,16 @@ namespace net
                 : m_context{context},m_socket{std::move(socket)},m_messages_in{qIn}
             {
                 m_owner = parent;
+                if(m_owner == owner::server)
+                {
+                    m_handshake_out = uint64_t(std::chrono::system_clock::now().time_since_epoch().count());
+                    m_handshake_check = scramble(m_handshake_out);
+                }
+                else
+                {
+                    m_handshake_out = 0;
+                    m_handshake_check = 0;
+                }
             }
             virtual ~connection()
             {}
@@ -33,7 +47,9 @@ namespace net
                             {
                                 if(!ec)
                                 {
-                                    readHeader();
+                                    // was : readHeader();
+                                    // first thing server will do is send packet to client to validate so first thing client will do is read it
+                                    readValidation();
                                 }
                             });
                 }
@@ -47,7 +63,7 @@ namespace net
             {
                 return m_socket.is_open();
             }
-            void connectToClient(uint32_t id = 0)
+            void connectToClient(net::server<T>* server,uint32_t id = 0)
             {
                 if(m_owner == owner::server)
                 {
@@ -55,7 +71,11 @@ namespace net
                     {
                         this->id = id;
                         //this should happen whenever it can happen so we prime the context when a client is connected
-                        readHeader();
+                        // was : readHeader();
+                        // server will immediately send validation handshake 
+                        writeValidation();
+                        // will read it after sending
+                        readValidation(server);
                     }
                 }
             }
@@ -76,6 +96,45 @@ namespace net
                         });
             }
             //All ASYNC functions
+            void readValidation(net::server<T>* server = nullptr) // ground work for derived classes
+            {
+					asio::async_read(m_socket,asio::buffer(&m_handshake_in,sizeof(uint64_t)),
+						[this,server](std::error_code ec,std::size_t length)
+							{
+								if(!ec)
+								{
+									if(m_owner==owner::server)
+									{
+							            //check the validation data recieved from the client
+                                        std::cout<<"client: "<<m_handshake_in<<" server: "<<m_handshake_check<<std::endl;
+                                        if(m_handshake_in == m_handshake_check)
+                                        {
+                                            std::cout<<"Client Validated \n";
+                                            server->onClientValidated(this->shared_from_this());
+                                            // prime for the next job
+
+                                            readHeader();
+                                        }
+                                        else
+                                        {
+                                            std::cout<<"Client Rejected (Failed Validation): "<<ec.message()<<std::endl;
+                                            m_socket.close();
+                                        }
+									}
+									else
+                                    {
+                                        // Connection is client try is solve the handshake
+                                        m_handshake_out=scramble(m_handshake_in);
+                                        writeValidation();
+                                    }
+								}
+								else
+								{
+									std::cout<<"Client Disconnected (Read Validation): "<<ec.message()<<std::endl;
+									m_socket.close();
+								}
+							});                
+            }
             void readHeader()
             {
                 asio::async_read(m_socket,asio::buffer(&m_msgTempIn.header,sizeof(message_header<T>)),
@@ -118,6 +177,24 @@ namespace net
                         });
             }
             //ASYNC, these wont sit and wait for something to happen
+            void writeValidation()
+            {
+                asio::async_write(m_socket,asio::buffer(&m_handshake_out,sizeof(uint64_t)),
+                            [this](std::error_code ec,std::size_t length)
+                                {
+                                    if(!ec)
+                                    {
+                                        if(m_owner == owner::client)
+                                            readHeader();
+                                            
+                                    }
+                                    else
+                                    {
+                                        std::cout<<"Server rejected (Write Validation): "<<ec.message()<<std::endl;
+                                        m_socket.close();
+                                    }
+                                });
+            }
             void writeHeader()
             {
                 asio::async_write(m_socket,asio::buffer(&m_messages_out.front().header,sizeof(message_header<T>)),
@@ -172,6 +249,13 @@ namespace net
                                                                    //connection
                 readHeader();
             }
+
+            uint64_t scramble(uint64_t nInput)
+            {
+                uint64_t out = nInput ^ 0xDEADBEEFC0DECAFE; //constant
+                out = (out & 0xF0F0F0F0F0F0F0) >> 4 | (out & 0xF0F0F0F0F0F0F0) << 4;
+                return out ^ 0xC0DEFACE12345678; // some constant can be a version so old client wont communicate 
+            }
             uint32_t getID()const{return id;}
         protected:
             asio::ip::tcp::socket m_socket;
@@ -185,5 +269,11 @@ namespace net
             message<T> m_msgTempIn;
             owner m_owner;
             uint32_t id;
+
+            //handshake validation
+
+            uint64_t m_handshake_out = 0; //what the connection will be sending outwards
+            uint64_t m_handshake_in = 0; //what the connection has recieved 
+            uint64_t m_handshake_check = 0;// will be used by the server to perform the comparison 
     };
 }

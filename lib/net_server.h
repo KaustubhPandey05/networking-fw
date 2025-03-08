@@ -59,7 +59,7 @@ namespace net
                             if(onClientConnect(newConn))
                             {
                                 m_connectionList.push_back(std::move(newConn));
-                                m_connectionList.back()->connectToClient(idCount++);
+                                m_connectionList.back()->connectToClient(this,idCount++);
                                 std::cout<<"["<<m_connectionList.back()->getID()<<"] connection approved\n";
                             }
                             else
@@ -121,8 +121,9 @@ namespace net
                 }
                 //called by the user to explicitly process some of the messages in the queue
                 //size_t as -1 sets it to max
-                void update(size_t maxMessages=-1)
+                void update(size_t maxMessages=-1, bool bWait = false)
                 {
+                    if(bWait) m_message.wait();
                     size_t messageCount = 0;
                     while(messageCount < maxMessages && !m_message.empty())
                     {
@@ -142,6 +143,11 @@ namespace net
 
                 }
                 virtual void onMessage(std::shared_ptr<connection<T>> client,message<T> &msg)
+                {
+
+                }
+            public:
+                virtual void onClientValidated(std::shared_ptr<connection<T>> client)
                 {
 
                 }
