@@ -95,10 +95,12 @@ namespace net
                 void messageAllClient(const message<T> &msg,std::shared_ptr<connection<T>> pIgnoreClient = nullptr)
                 {
                     bool bInvalidClientFound = false;
+                    std::cout<<"Test:"<<msg<<std::endl;
                     for(auto &client:m_connectionList)
                     {
                         if(client && client->isConnected())
                         {
+                            std::cout<<"valid client:"<<client->getID()<<std::endl;
                             if(client!=pIgnoreClient)
                                 client->send(msg);
                         }
